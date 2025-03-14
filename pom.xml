@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <scm>
-        <developerConnection>scm:git:ssh://git@github.com:GIScience/ohsome-planet.git</developerConnection>
+        <developerConnection>scm:git:git@github.com:GIScience/ohsome-planet.git</developerConnection>
         <url>https://github.com/GIScience/ohsome-planet</url>
     </scm>
 
