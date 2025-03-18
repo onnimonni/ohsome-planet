@@ -1,7 +1,7 @@
 package org.heigit.ohsome.contributions.transformer;
 
 import com.google.common.collect.Iterables;
-import me.tongfei.progressbar.ProgressBar;
+import me.tongfei.progressbar.ProgressBarBuilder;
 import org.apache.avro.specific.SpecificData;
 import org.apache.parquet.avro.AvroWriteSupport;
 import org.apache.parquet.column.ParquetProperties;
@@ -10,6 +10,7 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.heigit.ohsome.contributions.avro.Contrib;
 import org.heigit.ohsome.contributions.avro.ContribChangeset;
 import org.heigit.ohsome.contributions.rocksdb.RocksUtil;
+import org.heigit.ohsome.contributions.spatialjoin.SpatialJoiner;
 import org.heigit.ohsome.contributions.util.Progress;
 import org.heigit.ohsome.osm.OSMEntity;
 import org.heigit.ohsome.osm.OSMType;
@@ -35,29 +36,32 @@ import java.util.function.Function;
 
 import static java.nio.file.StandardOpenOption.READ;
 
-public abstract class Transformer<E extends OSMEntity, R> {
+public abstract class Transformer<E extends OSMEntity> {
     protected static final Instant VALID_TO = Instant.parse("2222-01-01T00:00:00Z");
-    private static final int BLOCKING_FACTOR = 4;
 
     protected final OSMType osmType;
     protected final OSMPbf pbf;
     protected final Path outputDir;
     protected final int parallel;
+    protected final int chunkFactor;
+    protected final SpatialJoiner countryJoiner;
 
-    protected Transformer(OSMType type, OSMPbf pbf, Path out, int parallel) {
+    protected Transformer(OSMType type, OSMPbf pbf, Path out, int parallel, int chunkFactor, SpatialJoiner countryJoiner) {
         this.osmType = type;
         this.pbf = pbf;
         this.outputDir = out;
         this.parallel = parallel;
+        this.chunkFactor = chunkFactor;
+        this.countryJoiner = countryJoiner;
     }
 
     public record Chunk(int start, int limit) {
     }
 
-    public static List<Chunk> blocksPerChunk(List<BlobHeader> blobs, int parallel) {
+    public static List<Chunk> blocksPerChunk(List<BlobHeader> blobs, int numChunks) {
         var size = blobs.size();
-        var chunkLength = size / parallel;
-        var rest = size % parallel;
+        var chunkLength = size / numChunks;
+        var rest = size % numChunks;
         if (chunkLength == 0) {
             chunkLength = 1;
             rest = 0;
@@ -74,8 +78,12 @@ public abstract class Transformer<E extends OSMEntity, R> {
 
     protected void process(Map<OSMType, List<BlobHeader>> blobsByType) throws IOException {
         var blobs = blobsByType.get(osmType);
-        var chunks = blocksPerChunk(blobs, parallel);
-        try (var progress = new ProgressBar("read " + osmType, blobs.size());
+        var chunks = blocksPerChunk(blobs, chunkFactor > 0 ? chunkFactor : parallel);
+        try (var progress = new ProgressBarBuilder()
+                .setTaskName("process %8s".formatted(osmType))
+                .setInitialMax(blobs.size())
+                .setUnit(" blk", 1)
+                .build();
              var ch = FileChannel.open(pbf.path(), READ)) {
             Flux.range(0, chunks.size())
                     .flatMap(id -> Mono.fromRunnable(() -> process(id, progress::stepBy, ch, chunks.get(id), blobs))
@@ -178,12 +186,13 @@ public abstract class Transformer<E extends OSMEntity, R> {
     }
 
     public static class Parquet implements Closeable {
+        record WriterPath(ParquetWriter<Contrib> writer, Path path) {}
 
         private final Path outputDir;
         private final OSMType type;
         private final Consumer<AvroUtil.AvroBuilder<Contrib>> config;
 
-        private final Map<CharSequence, ParquetWriter<Contrib>> writers = new HashMap<>();
+        private final Map<String, WriterPath> writers = new HashMap<>();
 
         public Parquet(Path outputDir, OSMType type, Consumer<AvroUtil.AvroBuilder<Contrib>> config) {
             this.outputDir = outputDir;
@@ -194,34 +203,40 @@ public abstract class Transformer<E extends OSMEntity, R> {
         @Override
         public void close() throws IOException {
             var suppressed = new ArrayList<IOException>();
-            for (var writer : writers.values()) {
+            for(var entry : writers.entrySet()) {
+                var status = entry.getKey();
+                var writerPath = entry.getValue();
                 try {
-                    writer.close();
+                    writerPath.writer().close();
+                    var newPath = outputDir.resolve("contributions")
+                            .resolve(status)
+                            .resolve(writerPath.path().getFileName());
+                    Files.createDirectories(newPath.toAbsolutePath().getParent());
+                    Files.move(writerPath.path(), newPath);
                 } catch (IOException e) {
                     suppressed.add(e);
                 }
             }
+
             if (!suppressed.isEmpty()) {
                 var exceptions = new IOException("error closing parquet writers!");
                 suppressed.forEach(exceptions::addSuppressed);
                 throw exceptions;
             }
-
         }
 
         public void write(long processorId, Contrib contrib) throws IOException {
             var status = "latest".contentEquals(contrib.getStatus()) ? "latest" : "history";
-            var writer = writers.get(status);
+            var writerPath = writers.get(status);
 
-            if (writer == null) {
-                var path = outputDir.resolve("contributions")
-                        .resolve(status)
-                        .resolve("%s-%d-%d-contribs.parquet".formatted(type, processorId, contrib.getOsmId()));
+            if (writerPath == null) {
+                var path = outputDir.resolve("progress")
+                        .resolve("%s-%d-%d-%s-contribs.parquet".formatted(type, processorId, contrib.getOsmId(), status));
                 Files.createDirectories(path.getParent());
-                writer = openWriter(path, config);
-                writers.put(status, writer);
+                writerPath = new WriterPath(openWriter(path, config), path);
+                writers.put(status, writerPath);
             }
-            writer.write(contrib);
+            writerPath.writer().write(contrib);
         }
     }
 }

@@ -31,11 +31,11 @@ import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMEntity.OSMNode;
 import static org.heigit.ohsome.osm.OSMType.WAY;
 
-public class TransformerWays extends Transformer<OSMWay, Long> {
-    public static void processWays(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel,
+public class TransformerWays extends Transformer<OSMWay> {
+    public static void processWays(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor,
                                    MinorNodeStorage minorNodeStorage, Path rocksDbPath, LongPredicate writeMinor, SpatialJoiner countryJoiner) throws IOException, RocksDBException {
         Files.createDirectories(rocksDbPath);
-        var transformer = new TransformerWays(pbf, out, parallel, minorNodeStorage, rocksDbPath.resolve("ingest"), writeMinor, countryJoiner);
+        var transformer = new TransformerWays(pbf, out, parallel, chunkFactor, minorNodeStorage, rocksDbPath.resolve("ingest"), writeMinor, countryJoiner);
         transformer.process(blobsByType);
         moveSstToRocksDb(rocksDbPath);
     }
@@ -44,14 +44,12 @@ public class TransformerWays extends Transformer<OSMWay, Long> {
     private final MinorNodeStorage minorNodesStorage;
     private final Path sstDirectory;
     private final LongPredicate writeMinor;
-    private final SpatialJoiner countryJoiner;
 
-    public TransformerWays(OSMPbf pbf, Path out, int parallel, MinorNodeStorage minorNodesStorage, Path sstDirectory, LongPredicate writeMinor, SpatialJoiner countryJoiner) {
-        super(WAY, pbf, out, parallel);
+    public TransformerWays(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodesStorage, Path sstDirectory, LongPredicate writeMinor, SpatialJoiner countryJoiner) {
+        super(WAY, pbf, out, parallel, chunkFactor, countryJoiner);
         this.minorNodesStorage = minorNodesStorage;
         this.sstDirectory = sstDirectory;
         this.writeMinor = writeMinor;
-        this.countryJoiner = countryJoiner;
     }
 
     @Override

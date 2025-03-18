@@ -27,22 +27,20 @@ import java.util.stream.Stream;
 import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMType.*;
 
-public class TransformerRelations extends Transformer<OSMRelation, Long> {
+public class TransformerRelations extends Transformer<OSMRelation> {
     private final boolean DEBUG = false;
 
     private final MinorNodeStorage minorNodeStorage;
     private final MinorWayStorage minorWayStorage;
-    private final SpatialJoiner countryJoiner;
 
-    public TransformerRelations(OSMPbf pbf, Path out, int parallel, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) {
-        super(RELATION, pbf, out, parallel);
+    public TransformerRelations(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) {
+        super(RELATION, pbf, out, parallel, chunkFactor, countryJoiner);
         this.minorNodeStorage = minorNodeStorage;
         this.minorWayStorage = minorWayStorage;
-        this.countryJoiner = countryJoiner;
     }
 
-    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) throws IOException {
-        var transformer = new TransformerRelations(pbf, out, parallel, minorNodeStorage, minorWayStorage, countryJoiner);
+    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) throws IOException {
+        var transformer = new TransformerRelations(pbf, out, parallel, chunkFactor, minorNodeStorage, minorWayStorage, countryJoiner);
         transformer.process(blobsByType);
     }
 

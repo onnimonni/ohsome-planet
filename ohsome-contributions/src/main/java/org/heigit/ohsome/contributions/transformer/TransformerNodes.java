@@ -28,19 +28,18 @@ import java.util.stream.Collectors;
 import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMType.NODE;
 
-public class TransformerNodes extends Transformer<OSMNode, Long> {
+public class TransformerNodes extends Transformer<OSMNode> {
     private final Path sstDirectory;
-    private final SpatialJoiner countryJoiner;
 
-    public TransformerNodes(OSMPbf pbf, Path out, int parallel, Path sstDirectory, SpatialJoiner countryJoiner) {
-        super(NODE, pbf, out, parallel);
+
+    public TransformerNodes(OSMPbf pbf, Path out, int parallel, int chunkFactor, Path sstDirectory, SpatialJoiner countryJoiner) {
+        super(NODE, pbf, out, parallel, chunkFactor, countryJoiner);
         this.sstDirectory = sstDirectory;
-        this.countryJoiner = countryJoiner;
     }
 
-    public static void processNodes(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, Path rocksDbPath, SpatialJoiner countryJoiner) throws IOException, RocksDBException {
+    public static void processNodes(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, Path rocksDbPath, SpatialJoiner countryJoiner) throws IOException, RocksDBException {
         Files.createDirectories(rocksDbPath);
-        var transformer = new TransformerNodes(pbf, out, parallel, rocksDbPath.resolve("ingest"), countryJoiner);
+        var transformer = new TransformerNodes(pbf, out, parallel, chunkFactor, rocksDbPath.resolve("ingest"), countryJoiner);
         transformer.process(blobsByType);
         moveSstToRocksDb(rocksDbPath);
     }

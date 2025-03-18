@@ -51,6 +51,9 @@ public class Contributions2Parquet implements Callable<Integer> {
     @Option(names = {"--debug"}, description = "Print debug information.")
     private boolean debug = false;
 
+    @Option(names = {"--chunks"}, description = "number of chunks which will processed. Default parallel")
+    private int chunkFactor = 0;
+
     public static void main(String[] args) {
         var main = new Contributions2Parquet();
         var exit = new CommandLine(main).execute(args);
@@ -60,14 +63,8 @@ public class Contributions2Parquet implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         var pbf = OSMPbf.open(pbfPath);
-        FileInfo.printInfo(pbf);
-
-        var total = Stopwatch.createStarted();
-
-        var blobHeaders = getBlobHeaders(pbf);
-        var blobTypes = pbf.blobsByType(blobHeaders);
         if (debug) {
-            printBlobInfo(blobTypes);
+            FileInfo.printInfo(pbf);
         }
 
         if (Files.exists(out)) {
@@ -79,19 +76,28 @@ public class Contributions2Parquet implements Callable<Integer> {
             }
         }
 
+        var total = Stopwatch.createStarted();
+
+        var blobHeaders = getBlobHeaders(pbf);
+        var blobTypes = pbf.blobsByType(blobHeaders);
+
+        if (debug) {
+            printBlobInfo(blobTypes);
+        }
+
         var countryJoiner = Optional.ofNullable(countryFilePath)
                 .map(SpatialJoiner::fromCSVGrid)
                 .orElseGet(SpatialJoiner::noop);
 
         RocksDB.loadLibrary();
         var minorNodesPath = out.resolve("minorNodes");
-        processNodes(pbf, blobTypes, out, parallel, minorNodesPath, countryJoiner);
+        processNodes(pbf, blobTypes, out, parallel, chunkFactor, minorNodesPath, countryJoiner);
 
         var minorWaysPath = out.resolve("minorWays");
         try (var minorNodes = MinorNodeStorage.inRocksMap(minorNodesPath)) {
-            processWays(pbf, blobTypes, out, parallel, minorNodes, minorWaysPath, x -> true, countryJoiner);
+            processWays(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWaysPath, x -> true, countryJoiner);
             try (var minorWays = MinorWayStorage.inRocksMap(minorWaysPath)) {
-                processRelations(pbf, blobTypes, out, parallel, minorNodes, minorWays, countryJoiner);
+                processRelations(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWays, countryJoiner);
             }
         }
 
@@ -112,12 +118,13 @@ public class Contributions2Parquet implements Callable<Integer> {
         try (var progress = new ProgressBarBuilder()
                 .setTaskName("read blocks")
                 .setInitialMax(pbf.size())
-                .setUnit("MiB", 1L << 20)
+                .setUnit(" MiB", 1L << 20)
                 .build()) {
             pbf.blobs().forEach(blobHeader -> {
                 progress.stepTo(blobHeader.offset() + blobHeader.dataSize());
                 blobHeaders.add(blobHeader);
             });
+            progress.setExtraMessage(blobHeaders.size() + " blocks");
         }
         return blobHeaders;
     }
