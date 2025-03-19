@@ -14,6 +14,7 @@ import org.heigit.ohsome.contributions.spatialjoin.SpatialJoiner;
 import org.heigit.ohsome.contributions.util.Progress;
 import org.heigit.ohsome.osm.OSMEntity;
 import org.heigit.ohsome.osm.OSMType;
+import org.heigit.ohsome.osm.changesets.Changesets;
 import org.heigit.ohsome.osm.pbf.BlobHeader;
 import org.heigit.ohsome.osm.pbf.OSMPbf;
 import org.heigit.ohsome.parquet.avro.AvroUtil;
@@ -32,12 +33,10 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static java.nio.file.StandardOpenOption.READ;
 
-public abstract class Transformer<E extends OSMEntity> {
-    protected static final Instant VALID_TO = Instant.parse("2222-01-01T00:00:00Z");
+public abstract class Transformer {
 
     protected final OSMType osmType;
     protected final OSMPbf pbf;
@@ -45,14 +44,16 @@ public abstract class Transformer<E extends OSMEntity> {
     protected final int parallel;
     protected final int chunkFactor;
     protected final SpatialJoiner countryJoiner;
+    protected final Changesets changesetDb;
 
-    protected Transformer(OSMType type, OSMPbf pbf, Path out, int parallel, int chunkFactor, SpatialJoiner countryJoiner) {
+    protected Transformer(OSMType type, OSMPbf pbf, Path out, int parallel, int chunkFactor, SpatialJoiner countryJoiner, Changesets changesetDb) {
         this.osmType = type;
         this.pbf = pbf;
         this.outputDir = out;
         this.parallel = parallel;
         this.chunkFactor = chunkFactor;
         this.countryJoiner = countryJoiner;
+        this.changesetDb = changesetDb;
     }
 
     public record Chunk(int start, int limit) {
@@ -60,8 +61,9 @@ public abstract class Transformer<E extends OSMEntity> {
 
     public static List<Chunk> blocksPerChunk(List<BlobHeader> blobs, int numChunks) {
         var size = blobs.size();
-        var chunkLength = size / numChunks;
-        var rest = size % numChunks;
+        var splits = Math.max(size, numChunks);
+        var chunkLength = size / splits;
+        var rest = size % splits;
         if (chunkLength == 0) {
             chunkLength = 1;
             rest = 0;
@@ -94,7 +96,7 @@ public abstract class Transformer<E extends OSMEntity> {
 
     private void process(int id, Progress progress, FileChannel ch, Chunk chunk, List<BlobHeader> blobs) {
         try {
-            var processor = Transformer.<E>processor(id, ch, chunk, blobs, pbf);
+            var processor = Transformer.processor(id, ch, chunk, blobs, pbf);
             process(processor, progress);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -143,26 +145,24 @@ public abstract class Transformer<E extends OSMEntity> {
         return builder.build();
     }
 
-    public static Function<Long, ContribChangeset> getChangeset(Map<Long, ContribChangeset> changesets) {
-        return cs -> changesets.computeIfAbsent(cs, id -> ContribChangeset.newBuilder()
-                .setId(id)
-                .setCreatedAt(Instant.ofEpochSecond(0)).setClosedAt(Instant.parse("2525-01-01T00:00:00Z"))
-                .setTags(Map.of()).setHashtags(List.of()).build());
-    }
-
     protected abstract void process(Processor processor, Progress progress) throws Exception;
 
-
-    protected Map<Long, ContribChangeset> fetchChangesets(Set<Long> ids) {
+    protected Map<Long, ContribChangeset> fetchChangesets(Set<Long> ids) throws Exception {
         var changesetBuilder = ContribChangeset.newBuilder();
-        var changesets = new HashMap<Long, ContribChangeset>();
-        for (var id : ids) {
-            changesets.put(id, changesetBuilder.setId(id)
-                    .setCreatedAt(Instant.ofEpochSecond(0))
-                    .setClosedAt(VALID_TO)
-                    .setTags(Map.of())
-                    .setHashtags(List.of()).build());
-        }
+        var changesets = changesetDb.changesets(ids,(id, created, closed, tags, hashtags, editor, numChanges) ->
+                changesetBuilder
+                        .setId(id)
+                        .setCreatedAt(created)
+                        .setClosedAt(closed)
+                        .setTags(Map.copyOf(tags))
+                        .setHashtags(List.copyOf(hashtags))
+                        .setEditor(editor)
+                        .setNumChanges(numChanges)
+                        .build());
+        changesetBuilder
+                .setCreatedAt(Instant.ofEpochSecond(0))
+                .clearClosedAt().clearTags().clearHashtags().clearEditor().clearNumChanges();
+        ids.forEach(id -> changesets.computeIfAbsent(id, x -> changesetBuilder.setId(id).build()));
         return changesets;
     }
 

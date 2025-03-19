@@ -48,6 +48,9 @@ public class Contributions2Parquet implements Callable<Integer> {
     @Option(names = {"--country-file"})
     private Path countryFilePath;
 
+    @Option(names = {"--changesetDb"}, description = "full jdbc:url to changesetmd database e.g. jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD")
+    private String changesetDbUrl = "";
+
     @Option(names = {"--debug"}, description = "Print debug information.")
     private boolean debug = false;
 
@@ -89,15 +92,17 @@ public class Contributions2Parquet implements Callable<Integer> {
                 .map(SpatialJoiner::fromCSVGrid)
                 .orElseGet(SpatialJoiner::noop);
 
+        var changesetDb = Changesets.open(changesetDbUrl, parallel);
+
         RocksDB.loadLibrary();
         var minorNodesPath = out.resolve("minorNodes");
-        processNodes(pbf, blobTypes, out, parallel, chunkFactor, minorNodesPath, countryJoiner);
+        processNodes(pbf, blobTypes, out, parallel, chunkFactor, minorNodesPath, countryJoiner, changesetDb);
 
         var minorWaysPath = out.resolve("minorWays");
         try (var minorNodes = MinorNodeStorage.inRocksMap(minorNodesPath)) {
-            processWays(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWaysPath, x -> true, countryJoiner);
+            processWays(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWaysPath, x -> true, countryJoiner, changesetDb);
             try (var minorWays = MinorWayStorage.inRocksMap(minorWaysPath)) {
-                processRelations(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWays, countryJoiner);
+                processRelations(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWays, countryJoiner, changesetDb);
             }
         }
 

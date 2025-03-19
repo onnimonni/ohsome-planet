@@ -10,6 +10,7 @@ import org.heigit.ohsome.contributions.spatialjoin.SpatialJoiner;
 import org.heigit.ohsome.contributions.util.Progress;
 import org.heigit.ohsome.osm.OSMEntity.OSMWay;
 import org.heigit.ohsome.osm.OSMType;
+import org.heigit.ohsome.osm.changesets.Changesets;
 import org.heigit.ohsome.osm.pbf.BlobHeader;
 import org.heigit.ohsome.osm.pbf.BlockReader;
 import org.heigit.ohsome.osm.pbf.OSMPbf;
@@ -31,11 +32,11 @@ import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMEntity.OSMNode;
 import static org.heigit.ohsome.osm.OSMType.WAY;
 
-public class TransformerWays extends Transformer<OSMWay> {
+public class TransformerWays extends Transformer {
     public static void processWays(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor,
-                                   MinorNodeStorage minorNodeStorage, Path rocksDbPath, LongPredicate writeMinor, SpatialJoiner countryJoiner) throws IOException, RocksDBException {
+                                   MinorNodeStorage minorNodeStorage, Path rocksDbPath, LongPredicate writeMinor, SpatialJoiner countryJoiner, Changesets changesetDb) throws IOException, RocksDBException {
         Files.createDirectories(rocksDbPath);
-        var transformer = new TransformerWays(pbf, out, parallel, chunkFactor, minorNodeStorage, rocksDbPath.resolve("ingest"), writeMinor, countryJoiner);
+        var transformer = new TransformerWays(pbf, out, parallel, chunkFactor, minorNodeStorage, rocksDbPath.resolve("ingest"), writeMinor, countryJoiner, changesetDb);
         transformer.process(blobsByType);
         moveSstToRocksDb(rocksDbPath);
     }
@@ -45,8 +46,8 @@ public class TransformerWays extends Transformer<OSMWay> {
     private final Path sstDirectory;
     private final LongPredicate writeMinor;
 
-    public TransformerWays(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodesStorage, Path sstDirectory, LongPredicate writeMinor, SpatialJoiner countryJoiner) {
-        super(WAY, pbf, out, parallel, chunkFactor, countryJoiner);
+    public TransformerWays(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodesStorage, Path sstDirectory, LongPredicate writeMinor, SpatialJoiner countryJoiner, Changesets changesetDb) {
+        super(WAY, pbf, out, parallel, chunkFactor, countryJoiner, changesetDb);
         this.minorNodesStorage = minorNodesStorage;
         this.sstDirectory = sstDirectory;
         this.writeMinor = writeMinor;
@@ -70,7 +71,7 @@ public class TransformerWays extends Transformer<OSMWay> {
         }
     }
 
-    private void process(Processor processor, Progress progress, Parquet writer, SstWriter sstWriter) throws IOException, RocksDBException {
+    private void process(Processor processor, Progress progress, Parquet writer, SstWriter sstWriter) throws Exception {
         var ch = processor.ch();
         var blobs = processor.blobs();
         var offset = processor.offset();
@@ -138,7 +139,7 @@ public class TransformerWays extends Transformer<OSMWay> {
 
             for (var osh : batch) {
                 var contributions = new ContributionsWay(osh, minorNodes);
-                var converter = new ContributionsAvroConverter(contributions, getChangeset(changesets), countryJoiner);
+                var converter = new ContributionsAvroConverter(contributions, changesets::get, countryJoiner);
 
                 while (converter.hasNext()) {
                     var contrib = converter.next();

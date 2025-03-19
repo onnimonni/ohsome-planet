@@ -186,20 +186,4 @@ public class ContributionGeometry {
     public static Geometry geometry(Envelope env) {
         return geometryFactory.toGeometry(env);
     }
-
-//    public static Geometry[] memberGeometries(Contribution contribution) {
-//        if (!contribution.entity().type().equals(RELATION)) {
-//            return null;
-//        }
-//        var str = relIsMultipolygon(contribution) ?
-//                contribution.members().stream()
-//                : contribution.members().stream()
-//                .filter(member -> member.type().equals(WAY))
-//                .filter(member -> member.role().isBlank() || "outer".equals(member.role()) || "inner".equals(member.role()));
-//        return str.map(ContribMember::contrib)
-//                .filter(Objects::nonNull)
-//                .map(member -> member.data("geometry", ContributionGeometry::geometry))
-//                .filter(Predicate.not(Geometry::isEmpty))
-//                .toArray(Geometry[]::new);
-//    }
 }

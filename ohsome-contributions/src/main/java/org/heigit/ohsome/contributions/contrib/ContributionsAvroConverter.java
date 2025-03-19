@@ -18,10 +18,12 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static java.util.function.Predicate.not;
 import static org.heigit.ohsome.contributions.util.GeometryTools.areaOf;
 import static org.heigit.ohsome.contributions.util.GeometryTools.lengthOf;
+import static org.heigit.ohsome.osm.OSMType.WAY;
 
 public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
     private static final Instant VALID_TO = Instant.parse("2222-01-01T00:00:00Z");
@@ -43,7 +45,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
     private int minorVersion;
     private int edits;
     private Geometry geometryBefore;
-    private Geometry[] memberGeometriesBefore;
+    private List<Geometry> memberGeometries;
     private double areaBefore;
     private double lengthBefore;
 
@@ -221,12 +223,23 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         return contribution.data("geometry", ContributionGeometry::geometry);
     }
 
-//    private boolean noGeometryChange(Contribution contribution) {
-//        var memberGeometries = ContributionGeometry.memberGeometries(contribution);
-//        var sameGeometry = memberGeometriesBefore != null && memberGeometriesBefore.length > 0 && Arrays.equals(memberGeometries, memberGeometriesBefore);
-//        memberGeometriesBefore = memberGeometries;
-//        return sameGeometry;
-//    }
+    private boolean noGeometryChange(Contribution contribution) {
+        if (!ContributionGeometry.relIsMultipolygon(contribution)) {
+            return false;
+        }
+
+        var memberGeometriesBefore = memberGeometries;
+        var newMemberGeometries = contribution.members().stream()
+                .filter(member -> member.type().equals(WAY))
+                .filter(member -> member.role().isBlank() || "outer".equals(member.role()) || "inner".equals(member.role()))
+                .map(ContribMember::contrib)
+                .filter(Objects::nonNull)
+                .map(member -> member.data("geometry", ContributionGeometry::geometry))
+                .filter(Predicate.not(Geometry::isEmpty))
+                .toList();
+        memberGeometries = newMemberGeometries;
+        return newMemberGeometries.equals(memberGeometriesBefore);
+    }
 
     private ByteBuffer wkb(Contribution contribution) {
         return contribution.data("wkb", this::contributionWkb);
@@ -239,19 +252,4 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
     private ByteBuffer wkb(Geometry geometry) {
         return ByteBuffer.wrap(wkb.write(geometry));
     }
-
-//    private void setTags(Map<String, String> tags, Map<String, String> tagsBefore) {
-//        var tagsDifference = Maps.difference(tagsBefore, tags);
-//
-//        var tagsRemoved = tagsDifference.entriesDiffering().entrySet().stream()
-//                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().leftValue()));
-//        var tagsAdded = tagsDifference.entriesDiffering().entrySet().stream()
-//                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().rightValue()));
-//
-//        tagsRemoved.putAll(tagsDifference.entriesOnlyOnLeft());
-//        tagsAdded.putAll(tagsDifference.entriesOnlyOnRight());
-//
-//        builder.setTagsAdded(Map.copyOf(tagsAdded));
-//        builder.setTagsRemoved(Map.copyOf(tagsRemoved));
-//    }
 }

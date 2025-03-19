@@ -14,6 +14,7 @@ import org.heigit.ohsome.osm.OSMEntity.OSMRelation;
 import org.heigit.ohsome.osm.OSMEntity.OSMWay;
 import org.heigit.ohsome.osm.OSMMember;
 import org.heigit.ohsome.osm.OSMType;
+import org.heigit.ohsome.osm.changesets.Changesets;
 import org.heigit.ohsome.osm.pbf.BlobHeader;
 import org.heigit.ohsome.osm.pbf.BlockReader;
 import org.heigit.ohsome.osm.pbf.OSMPbf;
@@ -27,20 +28,20 @@ import java.util.stream.Stream;
 import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMType.*;
 
-public class TransformerRelations extends Transformer<OSMRelation> {
+public class TransformerRelations extends Transformer {
     private final boolean DEBUG = false;
 
     private final MinorNodeStorage minorNodeStorage;
     private final MinorWayStorage minorWayStorage;
 
-    public TransformerRelations(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) {
-        super(RELATION, pbf, out, parallel, chunkFactor, countryJoiner);
+    public TransformerRelations(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb) {
+        super(RELATION, pbf, out, parallel, chunkFactor, countryJoiner, changesetDb);
         this.minorNodeStorage = minorNodeStorage;
         this.minorWayStorage = minorWayStorage;
     }
 
-    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner) throws IOException {
-        var transformer = new TransformerRelations(pbf, out, parallel, chunkFactor, minorNodeStorage, minorWayStorage, countryJoiner);
+    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb) throws IOException {
+        var transformer = new TransformerRelations(pbf, out, parallel, chunkFactor, minorNodeStorage, minorWayStorage, countryJoiner, changesetDb);
         transformer.process(blobsByType);
     }
 
@@ -125,7 +126,7 @@ public class TransformerRelations extends Transformer<OSMRelation> {
             var changesets = fetchChangesets(changesetIds);
 
             var contributions = new ContributionsRelation(osh, Contributions.memberOf(minorNodes, minorWays));
-            var converter = new ContributionsAvroConverter(contributions, getChangeset(changesets), countryJoiner);
+            var converter = new ContributionsAvroConverter(contributions, changesets::get, countryJoiner);
             var versions = 0;
             while (converter.hasNext()) {
                 var contrib = converter.next();
