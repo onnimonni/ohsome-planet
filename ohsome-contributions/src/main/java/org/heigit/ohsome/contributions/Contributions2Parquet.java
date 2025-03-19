@@ -5,6 +5,7 @@ import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
 import me.tongfei.progressbar.ProgressBarBuilder;
 import org.heigit.ohsome.osm.OSMType;
+import org.heigit.ohsome.osm.changesets.Changesets;
 import org.heigit.ohsome.osm.pbf.BlobHeader;
 import org.heigit.ohsome.osm.pbf.OSMPbf;
 import org.heigit.ohsome.contributions.minor.MinorNodeStorage;
