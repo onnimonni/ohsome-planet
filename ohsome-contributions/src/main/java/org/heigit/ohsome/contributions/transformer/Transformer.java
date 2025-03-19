@@ -61,7 +61,7 @@ public abstract class Transformer {
 
     public static List<Chunk> blocksPerChunk(List<BlobHeader> blobs, int numChunks) {
         var size = blobs.size();
-        var splits = Math.max(size, numChunks);
+        var splits = Math.min(size, numChunks);
         var chunkLength = size / splits;
         var rest = size % splits;
         if (chunkLength == 0) {
