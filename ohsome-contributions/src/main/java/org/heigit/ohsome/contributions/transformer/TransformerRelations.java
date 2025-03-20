@@ -9,6 +9,7 @@ import org.heigit.ohsome.contributions.minor.MinorNodeStorage;
 import org.heigit.ohsome.contributions.minor.MinorWayStorage;
 import org.heigit.ohsome.contributions.spatialjoin.SpatialJoiner;
 import org.heigit.ohsome.contributions.util.Progress;
+import org.heigit.ohsome.osm.OSMEntity;
 import org.heigit.ohsome.osm.OSMEntity.OSMNode;
 import org.heigit.ohsome.osm.OSMEntity.OSMRelation;
 import org.heigit.ohsome.osm.OSMEntity.OSMWay;
@@ -22,9 +23,12 @@ import org.heigit.ohsome.osm.pbf.OSMPbf;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Predicates.alwaysFalse;
+import static com.google.common.base.Predicates.alwaysTrue;
 import static com.google.common.collect.Iterators.peekingIterator;
 import static org.heigit.ohsome.osm.OSMType.*;
 
@@ -34,14 +38,23 @@ public class TransformerRelations extends Transformer {
     private final MinorNodeStorage minorNodeStorage;
     private final MinorWayStorage minorWayStorage;
 
-    public TransformerRelations(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb) {
+    private final Map<String, Predicate<String>> keyFilter;
+
+    public TransformerRelations(OSMPbf pbf, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb, List<String> includeTags) {
         super(RELATION, pbf, out, parallel, chunkFactor, countryJoiner, changesetDb);
         this.minorNodeStorage = minorNodeStorage;
         this.minorWayStorage = minorWayStorage;
+
+        if (!includeTags.isEmpty()) {
+            this.keyFilter = new HashMap<>();
+            includeTags.forEach(tag -> keyFilter.put(tag, alwaysTrue()));
+        } else {
+            this.keyFilter = null;
+        }
     }
 
-    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb) throws IOException {
-        var transformer = new TransformerRelations(pbf, out, parallel, chunkFactor, minorNodeStorage, minorWayStorage, countryJoiner, changesetDb);
+    public static void processRelations(OSMPbf pbf, Map<OSMType, List<BlobHeader>> blobsByType, Path out, int parallel, int chunkFactor, MinorNodeStorage minorNodeStorage, MinorWayStorage minorWayStorage, SpatialJoiner countryJoiner, Changesets changesetDb, List<String> includeTags) throws IOException {
+        var transformer = new TransformerRelations(pbf, out, parallel, chunkFactor, minorNodeStorage, minorWayStorage, countryJoiner, changesetDb, includeTags);
         transformer.process(blobsByType);
     }
 
@@ -101,8 +114,7 @@ public class TransformerRelations extends Transformer {
                     progress.step();
                 }
             }
-
-            if (!hasTags(osh)) {
+            if (!hasTags(osh) || filter(osh)) {
                 continue;
             }
 
@@ -148,4 +160,14 @@ public class TransformerRelations extends Transformer {
         ).collect(Collectors.toSet());
         return minorNodeStorage.getNodes(nodes);
     }
+
+    protected <T extends OSMEntity> boolean filter(List<T> osh) {
+        if (keyFilter == null) return false;
+        return osh.stream()
+                .map(OSMEntity::tags)
+                .map(Map::entrySet)
+                .flatMap(Collection::stream)
+                .noneMatch(tag -> keyFilter.getOrDefault(tag.getKey(), alwaysFalse()).test(tag.getValue()));
+    }
+
 }

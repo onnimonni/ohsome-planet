@@ -18,10 +18,7 @@ import picocli.CommandLine.Option;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.Callable;
 
 import static org.heigit.ohsome.contributions.transformer.TransformerNodes.processNodes;
@@ -58,6 +55,9 @@ public class Contributions2Parquet implements Callable<Integer> {
     @Option(names = {"--chunks"}, description = "number of chunks which will processed. Default parallel")
     private int chunkFactor = 0;
 
+    @Option(names = {"--include-tags"}, description = "OSM keys of relations that should be built")
+    private String includeTags = "";
+
     public static void main(String[] args) {
         var main = new Contributions2Parquet();
         var exit = new CommandLine(main).execute(args);
@@ -85,6 +85,8 @@ public class Contributions2Parquet implements Callable<Integer> {
         var blobHeaders = getBlobHeaders(pbf);
         var blobTypes = pbf.blobsByType(blobHeaders);
 
+        var tagsToInclude = includeTags.isBlank() ? List.<String>of() : Arrays.asList(includeTags.split(","));
+
         if (debug) {
             printBlobInfo(blobTypes);
         }
@@ -103,7 +105,7 @@ public class Contributions2Parquet implements Callable<Integer> {
         try (var minorNodes = MinorNodeStorage.inRocksMap(minorNodesPath)) {
             processWays(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWaysPath, x -> true, countryJoiner, changesetDb);
             try (var minorWays = MinorWayStorage.inRocksMap(minorWaysPath)) {
-                processRelations(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWays, countryJoiner, changesetDb);
+                processRelations(pbf, blobTypes, out, parallel, chunkFactor, minorNodes, minorWays, countryJoiner, changesetDb, tagsToInclude);
             }
         }
 
