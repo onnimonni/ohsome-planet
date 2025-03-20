@@ -18,7 +18,6 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 import static java.util.function.Predicate.not;
 import static org.heigit.ohsome.contributions.util.GeometryTools.areaOf;
@@ -108,12 +107,11 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         builder.setTags(Map.copyOf(entity.tags()));
         builder.setTagsBefore(Map.copyOf(entityBefore.map(OSMEntity::tags).orElse(Map.of())));
 
-
         var geometry = !entity.visible() ? geometryBefore : ContributionGeometry.geometry(contribution);
 
         final double area;
         final double length;
-        if (geometry != null && !geometry.isEmpty() && geometry.isValid()) {
+        if (geometry != null && !geometry.isEmpty()) {
             var env = geometry.getEnvelopeInternal();
             var centroid = geometry.getCentroid();
             builder.setBboxBuilder(bboxBuilder
@@ -127,6 +125,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
             var geometryType = geometry.getGeometryType();
             builder.setGeometryType(geometry.getGeometryType());
             if (COLLECTION_TYPES.contains(geometryType)) {
+                // only store bbox for collection types!
                 builder.setGeometry(wkb(ContributionGeometry.geometry(env)));
             } else {
                 builder.setGeometry(wkb(geometry));
@@ -138,26 +137,22 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         } else {
             builder.clearBbox();
             builder.clearCentroid();
-            if (!contribution.members().isEmpty()) {
-                var env = new Envelope();
-                for (var member : contribution.members()) {
-                    var contrib = member.contrib();
-                    if (contrib != null) {
-                        env.expandToInclude(geometry(contrib).getEnvelopeInternal());
-                    }
-                }
-                var centre = env.centre();
-                if (centre != null) {
-                    builder.setBboxBuilder(bboxBuilder
-                            .setXmin(env.getMinX())
-                            .setYmin(env.getMinY())
-                            .setXmax(env.getMaxX())
-                            .setYmax(env.getMaxY()));
-                    builder.setCentroidBuilder(centroidBuilder.setX(centre.getX()).setY(centre.getY()));
-                }
+            var env = getEnvelopeFromMembers(contribution);
+            var centre = env.centre();
+
+            if (centre != null) {
+                builder.setBboxBuilder(bboxBuilder
+                        .setXmin(env.getMinX())
+                        .setYmin(env.getMinY())
+                        .setXmax(env.getMaxX())
+                        .setYmax(env.getMaxY()));
+                builder.setCentroidBuilder(centroidBuilder.setX(centre.getX()).setY(centre.getY()));
             }
 
             builder.clearGeometryType();
+            if (geometry != null) {
+                builder.setGeometryType(geometry.getGeometryType());
+            }
             builder.clearGeometry();
             area = 0.0;
             length = 0.0;
@@ -193,14 +188,22 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         if (type == OSMType.WAY) {
             builder.setRefs(((OSMEntity.OSMWay) entity).refs());
         } else if (type == OSMType.RELATION) {
-            if (status.equals("invalid") || COLLECTION_TYPES.contains(geometry.getGeometryType())) {
-                builder.setMembers(contribution.members().stream().map(this::member).toList());
-            } else {
-                builder.setMembers(null);
-            }
+            builder.setMembers(contribution.members().stream().map(this::member).toList());
         }
         geometryBefore = geometry;
         return Optional.of(builder.setBuildTime(System.nanoTime() - buildTime).build());
+    }
+
+    private Envelope getEnvelopeFromMembers(Contribution contribution) {
+        var env = new Envelope();
+        contribution.members().stream()
+                .map(ContribMember::contrib)
+                .filter(Objects::nonNull)
+                .map(member -> member.data("geometry", ContributionGeometry::geometry))
+                .filter(not(Geometry::isEmpty))
+                .map(Geometry::getEnvelopeInternal)
+                .forEach(env::expandToInclude);
+        return env;
     }
 
     private Member member(ContribMember contribMember) {
@@ -236,7 +239,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
                 .map(ContribMember::contrib)
                 .filter(Objects::nonNull)
                 .map(member -> member.data("geometry", ContributionGeometry::geometry))
-                .filter(Predicate.not(Geometry::isEmpty))
+                .filter(not(Geometry::isEmpty))
                 .toList();
         memberGeometries = newMemberGeometries;
         return newMemberGeometries.equals(memberGeometriesBefore);
