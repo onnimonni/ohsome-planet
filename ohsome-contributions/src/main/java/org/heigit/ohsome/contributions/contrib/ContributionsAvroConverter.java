@@ -1,16 +1,11 @@
 package org.heigit.ohsome.contributions.contrib;
 
-import org.heigit.ohsome.contributions.avro.BBox;
-import org.heigit.ohsome.contributions.avro.Centroid;
-import org.heigit.ohsome.contributions.avro.Contrib;
-import org.heigit.ohsome.contributions.avro.ContribChangeset;
-import org.heigit.ohsome.contributions.avro.ContribUser;
-import org.heigit.ohsome.contributions.avro.Member;
+import org.heigit.ohsome.contributions.avro.*;
+import org.heigit.ohsome.contributions.util.XZCode;
 import org.heigit.ohsome.osm.OSMEntity;
 import org.heigit.ohsome.osm.OSMType;
 import org.heigit.ohsome.contributions.spatialjoin.SpatialJoiner;
 import org.heigit.ohsome.contributions.util.AbstractIterator;
-import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.io.WKBWriter;
 
@@ -27,6 +22,7 @@ import static org.heigit.ohsome.osm.OSMType.WAY;
 public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
     private static final Instant VALID_TO = Instant.parse("2222-01-01T00:00:00Z");
     private static final Set<String> COLLECTION_TYPES = Set.of(Geometry.TYPENAME_GEOMETRYCOLLECTION);
+    private static final XZCode XZ_CODE = new XZCode(16);
 
     private final OSMType type;
     private final Contributions contributions;
@@ -34,6 +30,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
     private final Contrib.Builder builder = Contrib.newBuilder();
     private final ContribUser.Builder userBuilder = ContribUser.newBuilder();
     private final Centroid.Builder centroidBuilder = Centroid.newBuilder();
+    private final ContribXZCode.Builder xzCodeBuilder = ContribXZCode.newBuilder();
     private final BBox.Builder bboxBuilder = BBox.newBuilder();
     private final Member.Builder memberBuilder = Member.newBuilder();
 
@@ -122,6 +119,8 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
             builder.setCentroidBuilder(centroidBuilder
                     .setX(centroid.getX())
                     .setY(centroid.getY()));
+            var xz = XZ_CODE.getId(env.getMinX(), env.getMinY(), env.getMaxX(), env.getMaxY());
+            builder.setXzcodeBuilder(xzCodeBuilder.setLevel(xz.level()).setCode(xz.code()));
             var geometryType = geometry.getGeometryType();
             builder.setGeometryType(geometry.getGeometryType());
             if (COLLECTION_TYPES.contains(geometryType)) {
@@ -137,16 +136,19 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         } else {
             builder.clearBbox();
             builder.clearCentroid();
-            var env = getEnvelopeFromMembers(contribution);
-            var centre = env.centre();
-
-            if (centre != null) {
+            builder.setXzcodeBuilder(xzCodeBuilder.setLevel(-1).setCode(0));
+            var collection = ContributionGeometry.geometry(contribution);
+            if (!collection.isEmpty()) {
+                var env = collection.getEnvelopeInternal();
+                var centroid = collection.getCentroid();
                 builder.setBboxBuilder(bboxBuilder
                         .setXmin(env.getMinX())
                         .setYmin(env.getMinY())
                         .setXmax(env.getMaxX())
                         .setYmax(env.getMaxY()));
-                builder.setCentroidBuilder(centroidBuilder.setX(centre.getX()).setY(centre.getY()));
+                builder.setCentroidBuilder(centroidBuilder.setX(centroid.getX()).setY(centroid.getY()));
+                var xz = XZ_CODE.getId(env.getMinX(), env.getMinY(), env.getMaxX(), env.getMaxY());
+                builder.setXzcodeBuilder(xzCodeBuilder.setLevel(xz.level()).setCode(xz.code()));
             }
 
             builder.clearGeometryType();
@@ -192,18 +194,6 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         }
         geometryBefore = geometry;
         return Optional.of(builder.setBuildTime(System.nanoTime() - buildTime).build());
-    }
-
-    private Envelope getEnvelopeFromMembers(Contribution contribution) {
-        var env = new Envelope();
-        contribution.members().stream()
-                .map(ContribMember::contrib)
-                .filter(Objects::nonNull)
-                .map(member -> member.data("geometry", ContributionGeometry::geometry))
-                .filter(not(Geometry::isEmpty))
-                .map(Geometry::getEnvelopeInternal)
-                .forEach(env::expandToInclude);
-        return env;
     }
 
     private Member member(ContribMember contribMember) {

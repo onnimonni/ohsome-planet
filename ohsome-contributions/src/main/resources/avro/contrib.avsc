@@ -74,6 +74,10 @@
       { "name": "y", "type": "double" }
     ]
   }], "default": null},
+  { "name": "xzcode", "type": { "name": "ContribXZCode", "type": "record", "fields": [
+    { "name": "level", "type": "int"},
+    { "name": "code", "type": "long" }
+  ]}},
   { "name": "geometry_type", "type": ["null", "string"], "default": null },
   { "name": "geometry", "type": ["null", "bytes"], "default": null},
   { "name": "area", "type": "double", "doc": "area in square meter" },
