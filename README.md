@@ -75,7 +75,7 @@ Currently, filtering for OSM nodes or ways is not implemented.
 
 In case you have more complex tag filtering needs, please refer to the [osmium documentation](https://docs.osmcode.org/osmium/latest/osmium-tags-filter.html) in order to prepare the input OSM pbf file.
 
-We are planning to add more tag filtering options in the future.s
+We are planning to add more tag filtering options in the future.
 
 ## Output Structure
 
