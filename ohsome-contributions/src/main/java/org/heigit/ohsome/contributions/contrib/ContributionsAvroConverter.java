@@ -137,7 +137,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
             builder.clearBbox();
             builder.clearCentroid();
             builder.setXzcodeBuilder(xzCodeBuilder.setLevel(-1).setCode(0));
-            var collection = ContributionGeometry.geometry(contribution);
+            var collection = ContributionGeometry.relGeometryCollection(contribution);
             if (!collection.isEmpty()) {
                 var env = collection.getEnvelopeInternal();
                 var centroid = collection.getCentroid();
