@@ -31,11 +31,11 @@ To process a given PBF file, provide it in the `--pbf` parameter in the followin
 java -jar ohsome-planet-cli/target/ohsome-planet.jar contributions \
     --pbf data/karlsruhe.osh.pbf \
     --country-file data/world.csv \
-    --changesetDb "jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD" \
+    --changeset-db "jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD" \
     --output out-karlsruhe \
     --overwrite 
 ```
-The parameters `--country-file`, `--changesetDb`, `--output` and `--overwrite` are optional.
+The parameters `--country-file`, `--changeset-db`, `--output` and `--overwrite` are optional.
 To see all available parameters, call the tool with `--help` parameter.
 
 ### Country Data
@@ -55,7 +55,7 @@ ITA;POLYGON ((10.766602 41.211722, 14.985352 41.211722, 14.985352 44.024422, 10.
 Passing this option will populate the `countries` attribute in the parquet files.
 
 ### Changesets
-By passing the parameter `--changesetDb` you can join OSM changeset information.
+By passing the parameter `--changeset-db` you can join OSM changeset information.
 It is expected that you pass the database connection as JDBC URL, e.g. `jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD`.
 Currently, ohsome-planet can connect to a database following the schema of [ChangesetMD](https://github.com/ToeBee/ChangesetMD).
 

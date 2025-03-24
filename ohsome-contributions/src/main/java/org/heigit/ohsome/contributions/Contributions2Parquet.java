@@ -46,7 +46,7 @@ public class Contributions2Parquet implements Callable<Integer> {
     @Option(names = {"--country-file"})
     private Path countryFilePath;
 
-    @Option(names = {"--changesetDb"}, description = "full jdbc:url to changesetmd database e.g. jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD")
+    @Option(names = {"--changeset-db"}, description = "full jdbc:url to changesetmd database e.g. jdbc:postgresql://HOST[:PORT]/changesets?user=USER&password=PASSWORD")
     private String changesetDbUrl = "";
 
     @Option(names = {"--debug"}, description = "Print debug information.")
