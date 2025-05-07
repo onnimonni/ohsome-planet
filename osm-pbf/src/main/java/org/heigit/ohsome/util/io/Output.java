@@ -52,4 +52,10 @@ public class Output extends FastByteArrayOutputStream {
     public static long encodeZigZag64(final long n) {
         return (n << 1) ^ (n >> 63);
     }
+
+    public void writeUTF8(String s) {
+        var bytes = s.getBytes();
+        writeU32(bytes.length);
+        write(bytes, 0, bytes.length);
+    }
 }
