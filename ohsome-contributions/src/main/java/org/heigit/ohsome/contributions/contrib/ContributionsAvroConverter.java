@@ -172,7 +172,7 @@ public class ContributionsAvroConverter extends AbstractIterator<Contrib> {
         var contribTypes = new ArrayList<String>();
         if (!entity.visible()) {
             contribTypes.add("DELETION");
-        } else if (entityBefore.filter(not(OSMEntity::visible)).isEmpty()) {
+        } else if (!entityBefore.map(OSMEntity::visible).orElse(false)) {
             contribTypes.add("CREATION");
         } else {
             if (entityBefore.map(OSMEntity::tags).filter(not(entity.tags()::equals)).isEmpty()) {
