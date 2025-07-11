@@ -269,12 +269,14 @@ public class Contributions2Parquet implements Callable<Integer> {
         var versions = 0;
         while (converter.hasNext()) {
             var contrib = converter.next();
-            writer.write(contrib);
-            versions++;
+            if (contrib.isPresent()) {
+                writer.write(contrib.get());
+                versions++;
+            }
         }
 
         if (debug) {
-            writer.log("%d,%d,%d".formatted(id, versions, System.nanoTime() - time));
+            writer.log("%s,%s,%s".formatted(id, versions, System.nanoTime() - time));
         }
     }
 
