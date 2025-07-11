@@ -2,16 +2,16 @@ package org.heigit.ohsome.contributions;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.PeekingIterator;
 import com.google.common.collect.Sets;
 import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
-import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import me.tongfei.progressbar.ProgressBarBuilder;
 import org.heigit.ohsome.contributions.avro.Contrib;
-import org.heigit.ohsome.contributions.contrib.*;
+import org.heigit.ohsome.contributions.contrib.Contributions;
+import org.heigit.ohsome.contributions.contrib.ContributionsAvroConverter;
+import org.heigit.ohsome.contributions.contrib.ContributionsRelation;
 import org.heigit.ohsome.contributions.minor.MinorNode;
 import org.heigit.ohsome.contributions.minor.MinorWay;
 import org.heigit.ohsome.contributions.rocksdb.RocksUtil;
@@ -34,6 +34,7 @@ import picocli.CommandLine.Option;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,6 +42,7 @@ import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Predicates.alwaysTrue;
@@ -148,18 +150,15 @@ public class Contributions2Parquet implements Callable<Integer> {
              var minorNodesDb = RocksDB.open(options, output.resolve("minorNodes").toString());
              var minorWaysDb = RocksDB.open(options, output.resolve("minorWays").toString());
              var progress = new ProgressBarBuilder()
-                .setTaskName("process %8s".formatted(RELATION))
-                .setInitialMax(blobTypes.get(RELATION).size())
-                .setUnit(" blk", 1)
-                .build()) {
+                     .setTaskName("process %8s".formatted(RELATION))
+                     .setInitialMax(blobTypes.get(RELATION).size())
+                     .setUnit(" blk", 1)
+                     .build()) {
 
             var readerScheduler =
                     Schedulers.newBoundedElastic(10 * Runtime.getRuntime().availableProcessors(), 10_000, "reader", 60, true);
 
-            var writers = new ArrayBlockingQueue<Writer>(numFiles);
-            for (var i = 0; i < numFiles; i++) {
-                writers.add(new Writer(i, RELATION, output, Contributions2Parquet::relationParquetConfig));
-            }
+            var writers = getWriters(output, numFiles);
 
             var blocks = Flux.fromIterable(blobTypes.get(RELATION))
                     // read blob from file
@@ -176,42 +175,53 @@ public class Contributions2Parquet implements Callable<Integer> {
                     .build());
 
             var entities = Iterators.peekingIterator(new OSMIterator(blocks, progress::stepBy));
-            var osh = new ArrayList<OSMEntity>();
-            var cancel = new AtomicBoolean(false);
-            while (entities.hasNext()) {
-                osh.clear();
-                var id = entities.peek().id();
-                while (entities.hasNext() && entities.peek().id() == id) {
-                    osh.add(entities.next());
-                }
 
-                if(hasNoTags(osh) || filterOut(osh, keyFilter)){
+            var canceled = new AtomicBoolean(false);
+            while (entities.hasNext() && !canceled.get()) {
+                var osh = getNextOSH(entities);
+
+                if (hasNoTags(osh) || filterOut(osh, keyFilter)) {
                     continue;
                 }
 
-                if (cancel.get()) {
-                    System.err.println("canceled");
-                    break;
-                }
-
-                var copy = List.copyOf(osh);
                 var writer = writers.take();
                 contribWorkers.execute(() -> {
                     try {
-                        processRelation(id, copy, writer, countryJoiner, changesetDb, minorNodesDb, minorWaysDb, debug);
+                        processRelation(osh, writer, countryJoiner, changesetDb, minorNodesDb, minorWaysDb, debug);
                     } catch (Exception e) {
-                        cancel.set(true);
-                        e.printStackTrace();
+                        canceled.set(true);
+                        System.err.println(e.getMessage());
                     } finally {
-                        writers.offer(writer);
+                        writers.add(writer);
                     }
                 });
             }
+
+            if (canceled.get()) {
+                System.err.println("cancelled");
+            }
             for (var i = 0; i < numFiles; i++) {
                 var writer = writers.take();
-                writer.close(cancel.get());
+                writer.close(canceled.get());
             }
         }
+    }
+
+    private List<OSMEntity> getNextOSH(PeekingIterator<OSMEntity> entities) {
+        var osh = new ArrayList<OSMEntity>();
+        var id = entities.peek().id();
+        while (entities.hasNext() && entities.peek().id() == id) {
+            osh.add(entities.next());
+        }
+        return osh;
+    }
+
+    private static ArrayBlockingQueue<Writer> getWriters(Path output, int numFiles) {
+        var writers = new ArrayBlockingQueue<Writer>(numFiles);
+        for (var i = 0; i < numFiles; i++) {
+            writers.add(new Writer(i, RELATION, output, Contributions2Parquet::relationParquetConfig));
+        }
+        return writers;
     }
 
     private static void relationParquetConfig(AvroUtil.AvroBuilder<Contrib> config) {
@@ -219,7 +229,8 @@ public class Contributions2Parquet implements Callable<Integer> {
                 .withMaxRowCountForPageSizeCheck(2);
     }
 
-    private static void processRelation(long id, List<OSMEntity> entities, Writer writer, SpatialJoiner spatialJoiner, Changesets changesetDb, RocksDB minorNodesDb, RocksDB minorWaysDb, boolean debug) throws Exception {
+    private static void processRelation(List<OSMEntity> entities, Writer writer, SpatialJoiner spatialJoiner, Changesets changesetDb, RocksDB minorNodesDb, RocksDB minorWaysDb, boolean debug) throws Exception {
+        var id = entities.getFirst().id();
         var minorNodeIds = new HashSet<Long>();
         var minorMemberIds = Map.of(
                 NODE, minorNodeIds,
