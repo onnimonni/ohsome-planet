@@ -13,7 +13,7 @@ import static java.util.Comparator.comparing;
 import static java.util.Optional.ofNullable;
 
 
-public class ContributionsEntity<T extends OSMEntity> extends Contributions {
+public class ContributionsEntity<T extends OSMEntity> extends AbstractContributions {
 
   private final PeekingIterator<T> majorVersions;
   protected T major;
@@ -26,7 +26,7 @@ public class ContributionsEntity<T extends OSMEntity> extends Contributions {
 
   protected final Function<OSMId, Contributions> memberContributions;
 
-  protected List<ContribMember> members;
+  protected List<Contribution.ContribMember> members;
   private long changeset;
   private int userId;
   private String user;
@@ -79,16 +79,16 @@ public class ContributionsEntity<T extends OSMEntity> extends Contributions {
     }
   }
 
-  private List<ContribMember> initMembers() {
+  private List<Contribution.ContribMember> initMembers() {
     var majorMembers = major.members();
-    var members = new ArrayList<ContribMember>(majorMembers.size());
+    var members = new ArrayList<Contribution.ContribMember>(majorMembers.size());
 
     for (var m : majorMembers) {
       var member = active.computeIfAbsent(m.osmId(),this::getOshContributions);
       while (member.hasNext() && (!member.peek().timestamp().isAfter(timestamp) || member.peek().changeset() == changeset)) {
         member.next();
       }
-      members.add(new ContribMember(m.type(), m.id(), member.prev(), m.role()));
+      members.add(new Contribution.ContribMember(m.type(), m.id(), member.prev(), m.role()));
     }
 
     queue.addAll(active.values());
@@ -101,7 +101,7 @@ public class ContributionsEntity<T extends OSMEntity> extends Contributions {
 
   private Contributions getContributions(OSMId osmId) {
     var contrib = memberContributions.apply(osmId);
-    return contrib != null ? contrib : Contributions.empty(osmId);
+    return contrib != null ? contrib : new EmptyContributions(osmId);
   }
 
   @Override
@@ -140,7 +140,7 @@ public class ContributionsEntity<T extends OSMEntity> extends Contributions {
             && changeset(memberContribution) == changeset) {
           memberContribution.next();
         }
-        members.add(new ContribMember(member.type(), member.id(), memberContribution.prev(), member.role()));
+        members.add(new Contribution.ContribMember(member.type(), member.id(), memberContribution.prev(), member.role()));
       }
     } else {
       // next major version
